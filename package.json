@@ -1,0 +1,24 @@
+{
+  "name": "pubmed-agent",
+  "version": "1.0.0",
+  "description": "Downloads metadata and open-access PDFs from PubMed for a list of PMIDs.",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "cross-env NODE_USE_ENV_PROXY=1 ts-node src/index.ts",
+    "build": "tsc",
+    "start:dist": "cross-env NODE_USE_ENV_PROXY=1 node dist/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "fast-xml-parser": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "cross-env": "^7.0.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.0"
+  }
+}
