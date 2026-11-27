@@ -1,11 +1,18 @@
 import fs from 'fs';
 import path from 'path';
+import { config } from './config';
 import { withRetry } from './retry';
 
 export async function downloadPdf(url: string, destPath: string): Promise<void> {
   await withRetry(
     async () => {
-      const res = await fetch(url, { redirect: 'follow' });
+      const res = await fetch(url, {
+        redirect: 'follow',
+        headers: {
+          'User-Agent': `PubMed-Agent/1.0 (mailto:${config.contactEmail})`,
+          Accept: 'application/pdf,*/*',
+        },
+      });
 
       if (res.status === 429) throw new Error('download rate limited (429)');
       if (!res.ok) throw new Error(`download failed with status ${res.status}`);
