@@ -13,6 +13,7 @@ const HEADERS: { key: keyof ResultRow; label: string }[] = [
   { key: 'pmcid', label: 'PMCID' },
   { key: 'status', label: 'Status' },
   { key: 'pdfUrl', label: 'PDF URL' },
+  { key: 'pdfSource', label: 'PDF Source' },
   { key: 'localPath', label: 'Local File Path' },
 ];
 

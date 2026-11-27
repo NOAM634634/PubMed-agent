@@ -4,6 +4,8 @@ import { config } from './config';
 import { loadPmids } from './pmids';
 import { fetchArticles } from './eutils';
 import { lookupUnpaywall } from './unpaywall';
+import { lookupSemanticScholar } from './semanticScholar';
+import { normalizePdfUrl } from './pdfUrl';
 import { downloadPdf, pdfExists } from './download';
 import { writeResultsCsv } from './csv';
 import { sleep } from './retry';
@@ -13,6 +15,7 @@ const PMIDS_FILE = path.join(process.cwd(), 'pmids.txt');
 const DOWNLOADS_DIR = path.join(process.cwd(), 'downloads');
 const RESULTS_FILE = path.join(process.cwd(), 'results.csv');
 const UNPAYWALL_DELAY_MS = 150;
+const SEMANTIC_SCHOLAR_DELAY_MS = 1200;
 
 async function main() {
   console.log('PubMed Agent - starting\n');
@@ -65,6 +68,7 @@ async function main() {
         pmcid: null,
         status: 'error',
         pdfUrl: null,
+        pdfSource: null,
         localPath: null,
       });
       continue;
@@ -73,7 +77,13 @@ async function main() {
     console.log(`${progress} PMID ${pmid}: ${article.title.slice(0, 90)}`);
 
     const destPath = path.join(DOWNLOADS_DIR, `${pmid}.pdf`);
-    const row: ResultRow = { ...article, status: 'paywall_or_no_pdf', pdfUrl: null, localPath: null };
+    const row: ResultRow = {
+      ...article,
+      status: 'paywall_or_no_pdf',
+      pdfUrl: null,
+      pdfSource: null,
+      localPath: null,
+    };
 
     if (pdfExists(destPath)) {
       console.log('  PDF already downloaded, skipping');
@@ -83,40 +93,59 @@ async function main() {
       continue;
     }
 
-    if (!article.doi) {
-      console.log('  no DOI available, cannot query Unpaywall');
-      row.status = 'no_doi';
-      row.pdfUrl = article.pubmedUrl;
-      rows.push(row);
-      continue;
+    let candidatePdfUrl: string | null = null;
+    let candidateSource: 'unpaywall' | 'semantic_scholar' | null = null;
+    let landingPageUrl: string | null = null;
+
+    if (article.doi) {
+      try {
+        const unpaywall = await lookupUnpaywall(article.doi);
+        await sleep(UNPAYWALL_DELAY_MS);
+        landingPageUrl = unpaywall.landingPageUrl;
+        if (unpaywall.isOa && unpaywall.pdfUrl) {
+          candidatePdfUrl = unpaywall.pdfUrl;
+          candidateSource = 'unpaywall';
+        }
+      } catch (err) {
+        console.warn(`  Unpaywall lookup failed: ${(err as Error).message}`);
+      }
+    } else {
+      console.log('  no DOI available, trying Semantic Scholar by PMID');
     }
 
-    try {
-      const unpaywall = await lookupUnpaywall(article.doi);
-      await sleep(UNPAYWALL_DELAY_MS);
-
-      if (unpaywall.isOa && unpaywall.pdfUrl) {
-        console.log('  open-access PDF found, downloading...');
-        try {
-          await downloadPdf(unpaywall.pdfUrl, destPath);
-          row.status = 'downloaded';
-          row.pdfUrl = unpaywall.pdfUrl;
-          row.localPath = destPath;
-          console.log(`  saved to ${destPath}`);
-        } catch (err) {
-          console.warn(`  failed to download PDF: ${(err as Error).message}`);
-          row.status = 'error';
-          row.pdfUrl = unpaywall.pdfUrl;
+    if (!candidatePdfUrl) {
+      try {
+        const semanticScholar = await lookupSemanticScholar(pmid);
+        await sleep(SEMANTIC_SCHOLAR_DELAY_MS);
+        if (semanticScholar.pdfUrl) {
+          candidatePdfUrl = semanticScholar.pdfUrl;
+          candidateSource = 'semantic_scholar';
         }
-      } else {
-        console.log('  no open-access PDF available');
-        row.status = 'paywall_or_no_pdf';
-        row.pdfUrl = unpaywall.landingPageUrl || article.pubmedUrl;
+      } catch (err) {
+        console.warn(`  Semantic Scholar lookup failed: ${(err as Error).message}`);
       }
-    } catch (err) {
-      console.warn(`  Unpaywall lookup failed: ${(err as Error).message}`);
-      row.status = 'error';
-      row.pdfUrl = article.pubmedUrl;
+    }
+
+    if (candidatePdfUrl) {
+      const downloadUrl = normalizePdfUrl(candidatePdfUrl);
+      console.log(`  open-access PDF found (${candidateSource}), downloading...`);
+      try {
+        await downloadPdf(downloadUrl, destPath);
+        row.status = 'downloaded';
+        row.pdfUrl = candidatePdfUrl;
+        row.pdfSource = candidateSource;
+        row.localPath = destPath;
+        console.log(`  saved to ${destPath}`);
+      } catch (err) {
+        console.warn(`  failed to download PDF: ${(err as Error).message}`);
+        row.status = 'error';
+        row.pdfUrl = candidatePdfUrl;
+        row.pdfSource = candidateSource;
+      }
+    } else {
+      console.log('  no open-access PDF available');
+      row.status = article.doi ? 'paywall_or_no_pdf' : 'no_doi';
+      row.pdfUrl = landingPageUrl || article.pubmedUrl;
     }
 
     rows.push(row);

@@ -20,5 +20,6 @@ export type DownloadStatus =
 export interface ResultRow extends PubMedArticle {
   status: DownloadStatus;
   pdfUrl: string | null;
+  pdfSource: 'unpaywall' | 'semantic_scholar' | null;
   localPath: string | null;
 }
